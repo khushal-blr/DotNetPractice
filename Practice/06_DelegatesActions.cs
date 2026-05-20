@@ -107,36 +107,36 @@ public static class MulticastDelegates
     {
         Console.WriteLine("\n--- Multicast Delegate ---");
 
-        Action<string> pipeline = Step1;
-        pipeline += Step2;   // add to invocation list
-        pipeline += Step3;
+        Action<string> pipeline = ValidateOrder;
+        pipeline += EnrichOrder;     // add to invocation list
+        pipeline += PublishToEventBus;
 
-        pipeline("order-123"); // calls all three in order
+        pipeline("ORD-2024-001"); // calls all three in order
 
-        pipeline -= Step2;     // remove from invocation list
-        Console.WriteLine("After removing Step2:");
-        pipeline("order-456");
+        pipeline -= EnrichOrder;     // remove from invocation list
+        Console.WriteLine("After removing EnrichOrder:");
+        pipeline("ORD-2024-002");
 
         // FOLLOW-UP Q: What if a delegate in the chain throws?
         // Remaining delegates are NOT called. Fix: invoke manually via GetInvocationList().
         Console.WriteLine("\n--- Safe multicast with GetInvocationList ---");
-        Action<string> safeChain = SafeStep1;
-        safeChain += ThrowingStep;
-        safeChain += SafeStep2;
+        Action<string> safeChain = LogOrderReceived;
+        safeChain += EnrichWithExternalData;  // fragile — may throw
+        safeChain += SaveToDatabase;
 
         foreach (Action<string> handler in safeChain.GetInvocationList())
         {
-            try { handler("data"); }
+            try { handler("ORD-2024-003"); }
             catch (Exception ex) { Console.WriteLine($"[Error in handler] {ex.Message}"); }
         }
     }
 
-    private static void Step1(string x) => Console.WriteLine($"  Step1 processing {x}");
-    private static void Step2(string x) => Console.WriteLine($"  Step2 processing {x}");
-    private static void Step3(string x) => Console.WriteLine($"  Step3 processing {x}");
-    private static void SafeStep1(string x) => Console.WriteLine($"  SafeStep1: {x}");
-    private static void ThrowingStep(string x) => throw new InvalidOperationException("Step failed");
-    private static void SafeStep2(string x) => Console.WriteLine($"  SafeStep2: {x}");
+    private static void ValidateOrder(string orderId)        => Console.WriteLine($"  [Validate]  order {orderId} passed schema check");
+    private static void EnrichOrder(string orderId)          => Console.WriteLine($"  [Enrich]    order {orderId} customer metadata attached");
+    private static void PublishToEventBus(string orderId)    => Console.WriteLine($"  [Publish]   order {orderId} sent to order.placed topic");
+    private static void LogOrderReceived(string orderId)     => Console.WriteLine($"  [Log]       order {orderId} received");
+    private static void EnrichWithExternalData(string orderId) => throw new InvalidOperationException("Enrichment service timeout");
+    private static void SaveToDatabase(string orderId)       => Console.WriteLine($"  [Persist]   order {orderId} saved to Orders table");
 }
 
 // ============================================================

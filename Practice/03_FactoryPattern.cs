@@ -124,57 +124,57 @@ public class PayPalPaymentService : PaymentService
 
 // ============================================================
 // 3. ABSTRACT FACTORY — creates families of related objects
-//    SCENARIO: UI components — each region needs matching Button + Checkbox
+//    SCENARIO: Cloud infrastructure — swap AWS vs Azure without changing business logic
 // ============================================================
 
 // Abstract products
-public interface IButton  { void Render(); }
-public interface ICheckbox { void Render(); }
+public interface IFileStorage  { void Upload(string key, string content); }
+public interface IMessageQueue { void Enqueue(string message); }
 
-// Windows family
-public class WindowsButton  : IButton   { public void Render() => Console.WriteLine("[Windows Button  ] rendered"); }
-public class WindowsCheckbox : ICheckbox { public void Render() => Console.WriteLine("[Windows Checkbox] rendered"); }
+// AWS family
+public class S3Storage  : IFileStorage  { public void Upload(string key, string content) => Console.WriteLine($"[S3]  PUT s3://orders-bucket/{key}"); }
+public class SqsQueue   : IMessageQueue { public void Enqueue(string message)             => Console.WriteLine($"[SQS] Send → orders-queue: {message}"); }
 
-// Mac family
-public class MacButton   : IButton   { public void Render() => Console.WriteLine("[Mac Button  ] rendered"); }
-public class MacCheckbox : ICheckbox { public void Render() => Console.WriteLine("[Mac Checkbox] rendered"); }
+// Azure family
+public class AzureBlobStorage : IFileStorage  { public void Upload(string key, string content) => Console.WriteLine($"[Blob]        PUT https://storage.blob.core.windows.net/orders/{key}"); }
+public class ServiceBusQueue  : IMessageQueue { public void Enqueue(string message)              => Console.WriteLine($"[Service Bus] Send → sb://orders.servicebus.windows.net: {message}"); }
 
 // Abstract factory
-public interface IUIFactory
+public interface ICloudInfrastructureFactory
 {
-    IButton CreateButton();
-    ICheckbox CreateCheckbox();
+    IFileStorage  CreateFileStorage();
+    IMessageQueue CreateMessageQueue();
 }
 
-// Concrete factories — each creates a FAMILY of matching components
-public class WindowsUIFactory : IUIFactory
+// Concrete factories — each creates a FAMILY of matching cloud services
+public class AwsInfrastructureFactory : ICloudInfrastructureFactory
 {
-    public IButton CreateButton()   => new WindowsButton();
-    public ICheckbox CreateCheckbox() => new WindowsCheckbox();
+    public IFileStorage  CreateFileStorage()  => new S3Storage();
+    public IMessageQueue CreateMessageQueue() => new SqsQueue();
 }
 
-public class MacUIFactory : IUIFactory
+public class AzureInfrastructureFactory : ICloudInfrastructureFactory
 {
-    public IButton CreateButton()   => new MacButton();
-    public ICheckbox CreateCheckbox() => new MacCheckbox();
+    public IFileStorage  CreateFileStorage()  => new AzureBlobStorage();
+    public IMessageQueue CreateMessageQueue() => new ServiceBusQueue();
 }
 
-// Client uses the factory without knowing which family
-public class Application
+// Client uses the factory — no reference to AWS or Azure types
+public class OrderArchiver
 {
-    private readonly IButton _button;
-    private readonly ICheckbox _checkbox;
+    private readonly IFileStorage  _storage;
+    private readonly IMessageQueue _queue;
 
-    public Application(IUIFactory factory)
+    public OrderArchiver(ICloudInfrastructureFactory factory)
     {
-        _button   = factory.CreateButton();
-        _checkbox = factory.CreateCheckbox();
+        _storage = factory.CreateFileStorage();
+        _queue   = factory.CreateMessageQueue();
     }
 
-    public void RenderUI()
+    public void Archive(string orderId)
     {
-        _button.Render();
-        _checkbox.Render();
+        _storage.Upload($"orders/{orderId}.json", $"{{\"orderId\":\"{orderId}\"}}");
+        _queue.Enqueue($"order.archived:{orderId}");
     }
 }
 
@@ -223,13 +223,13 @@ public static class FactoryDemo
 
         // 3. Abstract Factory
         Console.WriteLine("\n--- Abstract Factory ---");
-        IUIFactory factory = System.Runtime.InteropServices.RuntimeInformation
-            .IsOSPlatform(System.Runtime.InteropServices.OSPlatform.OSX)
-            ? new MacUIFactory()
-            : new WindowsUIFactory();
+        string cloudProvider = Environment.GetEnvironmentVariable("CLOUD_PROVIDER") ?? "aws";
+        ICloudInfrastructureFactory infraFactory = cloudProvider == "azure"
+            ? new AzureInfrastructureFactory()
+            : new AwsInfrastructureFactory();
 
-        var app = new Application(factory);
-        app.RenderUI();
+        var archiver = new OrderArchiver(infraFactory);
+        archiver.Archive("ORD-20240512-001");
     }
 }
 
